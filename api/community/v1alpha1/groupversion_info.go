@@ -17,7 +17,7 @@ limitations under the License.
 // Package v1alpha1 contains API Schema definitions for the API group of version v1alpha1
 // +kubebuilder:object:generate=true
 // +k8s:openapi-gen=true
-// +groupName=control.kubestellar.io
+// +groupName=community.kubestellar.io
 package v1alpha1
 
 import (
@@ -27,7 +27,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects
-	GroupVersion = schema.GroupVersion{Group: "control.kubestellar.io", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "community.kubestellar.io", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)

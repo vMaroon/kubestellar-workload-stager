@@ -14,9 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package control
+// not k8s:deepcopy-gen=package
+// +groupName=community.kubestellar.io
 
-// GroupName is the group name used in this package
-const (
-	GroupName = "control.kubestellar.io"
-)
+package v1alpha1

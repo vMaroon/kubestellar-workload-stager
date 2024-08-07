@@ -17,11 +17,11 @@ limitations under the License.
 package v1alpha1
 
 import (
+	mygroup "github.com/vMaroon/kubestellar-workload-stager/api/community"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	mygroup "github.com/kubestellar/kubestellar/api/control"
 )
 
 // SchemeGroupVersion is group version used to register these objects
@@ -40,6 +40,7 @@ func Resource(resource string) schema.GroupResource {
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&StagedBindingPolicy{},
+		&StagedBindingPolicyList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

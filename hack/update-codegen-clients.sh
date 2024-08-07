@@ -38,7 +38,7 @@ rm -rf "${SCRIPT_ROOT}/pkg/generated"
 
 kube::codegen::gen_client \
     --with-watch \
-    --input-pkg-root github.com/kubestellar/kubestellar/api \
-    --output-pkg-root github.com/kubestellar/kubestellar/pkg/generated \
+    --input-pkg-root github.com/kubestellar-workload-stager/api \
+    --output-pkg-root github.com/kubestellar-workload-stager/pkg/generated \
     --output-base "${SCRIPT_ROOT}/../../.." \
     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate/boilerplate.generatego.txt"

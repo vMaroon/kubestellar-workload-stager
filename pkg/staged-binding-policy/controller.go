@@ -19,6 +19,8 @@ package staged_binding_policy
 import (
 	"context"
 	"fmt"
+	communityv1alpha1 "github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
+	v1alpha12 "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/listers/community/v1alpha1"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -55,15 +57,17 @@ const (
 )
 
 type Controller struct {
-	logger                 logr.Logger
-	controlClient          controlclient.ControlV1alpha1Interface // used for Binding, BindingPolicy
-	ksInformerFactoryStart func(stopCh <-chan struct{})
-	bindingInformer        cache.SharedIndexInformer
-	bindingLister          controllisters.BindingLister
-	bindingPolicyInformer  cache.SharedIndexInformer
-	bindingPolicyLister    controllisters.BindingPolicyLister
-	combinedStatusInformer cache.SharedIndexInformer
-	combinedStatusLister   controllisters.CombinedStatusLister
+	logger                      logr.Logger
+	controlClient               controlclient.ControlV1alpha1Interface // used for Binding, BindingPolicy
+	ksInformerFactoryStart      func(stopCh <-chan struct{})
+	bindingInformer             cache.SharedIndexInformer
+	bindingLister               controllisters.BindingLister
+	bindingPolicyInformer       cache.SharedIndexInformer
+	bindingPolicyLister         controllisters.BindingPolicyLister
+	combinedStatusInformer      cache.SharedIndexInformer
+	combinedStatusLister        controllisters.CombinedStatusLister
+	stagedBindingPolicyInformer cache.SharedIndexInformer
+	stagedBindingPolicyLister   v1alpha12.StagedBindingPolicyLister
 
 	// Contains bindingPolicyRef, bindingRef, combinedStatusRef
 	workqueue     workqueue.RateLimitingInterface
@@ -160,6 +164,9 @@ func (c *Controller) Start(parentCtx context.Context, workers int) error {
 		return err
 	}
 	if err := c.setupCombinedStatusInformer(ctx); err != nil {
+		return err
+	}
+	if err := c.setupStagedBindingPolicyInformer(ctx); err != nil {
 		return err
 	}
 
@@ -293,6 +300,38 @@ func (c *Controller) setupCombinedStatusInformer(ctx context.Context) error {
 	})
 	if err != nil {
 		c.logger.Error(err, "failed to add combinedstatuses informer event handler")
+		return err
+	}
+	return nil
+}
+
+func (c *Controller) setupStagedBindingPolicyInformer(ctx context.Context) error {
+	logger := klog.FromContext(ctx)
+	_, err := c.stagedBindingPolicyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			sbp := obj.(*communityv1alpha1.StagedBindingPolicy)
+			logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer add event", "name", sbp.Name, "resourceVersion", sbp.ResourceVersion)
+			c.workqueue.Add(sbp.Name)
+		},
+		UpdateFunc: func(old, new interface{}) {
+			oldSBP := old.(*communityv1alpha1.StagedBindingPolicy)
+			newSBP := new.(*communityv1alpha1.StagedBindingPolicy)
+			if oldSBP.Generation != newSBP.Generation {
+				logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer update event", "name", newSBP.Name, "resourceVersion", newSBP.ResourceVersion)
+				c.workqueue.Add(newSBP.Name)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			if typed, is := obj.(cache.DeletedFinalStateUnknown); is {
+				obj = typed.Obj
+			}
+			sbp := obj.(*communityv1alpha1.StagedBindingPolicy)
+			logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer delete event", "name", sbp.Name)
+			c.workqueue.Add(sbp.Name)
+		},
+	})
+	if err != nil {
+		c.logger.Error(err, "failed to add stagedbindingpolicies informer event handler")
 		return err
 	}
 	return nil
