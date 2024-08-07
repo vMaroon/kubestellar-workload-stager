@@ -1,0 +1,35 @@
+.kcp*
+*.log
+coverage.*
+cover.out
+tools
+build
+.vscode
+.idea
+docs/scripts/generated_script.sh
+
+# local chart of the controller manager for dev/test
+local-chart/
+
+# KubeStellar controller-manager YAML is dynamically generated when needed
+/chart/templates/controller-manager.yaml
+
+# etc distributions
+/etcd-v*
+
+# Draw.io backup files
+.*.png.bkp
+
+# JetBrains IDE files
+.idea/
+*.iml
+
+# Mac trash
+.DS_Store
+
+# word counts
+/counts
+
+# Core Chart generated dependencies
+core-chart/Chart.lock
+core-chart/charts/

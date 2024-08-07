@@ -1,0 +1,346 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  name: stagedbindingpolicies.control.kubestellar.io
+spec:
+  group: control.kubestellar.io
+  names:
+    kind: StagedBindingPolicy
+    listKind: StagedBindingPolicyList
+    plural: stagedbindingpolicies
+    shortNames:
+    - sbp
+    singular: stagedbindingpolicy
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: "StagedBindingPolicy builds on top of Kubestellar's BindingPolicy
+          to add a staging capabilities. A StagedBindingPolicy contains stages, each
+          of which defines a BindingPolicy and a CEL condition that completes the
+          stage when evaluated to true. \n The condition is checked against CombinedStatuses
+          associated with the BindingPolicy at the active stage. In addition to the
+          condition expression, a filter expression can be provided to filter the
+          CombinedStatuses that are considered for the condition evaluation. In the
+          future, the filtering and condition checking may be done against all resources
+          associated with the workload selected by the BindingPolicy."
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: StagedBindingPolicySpec defines the desired state of StagedBindingPolicy.
+            properties:
+              stages:
+                description: Stages is a list of stages that define the order in which
+                  the BindingPolicies are generated.
+                items:
+                  description: Stage defines a stage in a StagedBindingPolicy.
+                  properties:
+                    bindingPolicySpec:
+                      description: '`bindingPolicySpec` defines the BindingPolicy
+                        that is used in this stage.'
+                      properties:
+                        clusterSelectors:
+                          description: '`clusterSelectors` identifies the relevant
+                            Cluster objects in terms of their labels. A Cluster is
+                            relevant if and only if it passes any of the LabelSelectors
+                            in this field.'
+                          items:
+                            description: A label selector is a label query over a
+                              set of resources. The result of matchLabels and matchExpressions
+                              are ANDed. An empty label selector matches all objects.
+                              A null label selector matches no objects.
+                            properties:
+                              matchExpressions:
+                                description: matchExpressions is a list of label selector
+                                  requirements. The requirements are ANDed.
+                                items:
+                                  description: A label selector requirement is a selector
+                                    that contains values, a key, and an operator that
+                                    relates the key and values.
+                                  properties:
+                                    key:
+                                      description: key is the label key that the selector
+                                        applies to.
+                                      type: string
+                                    operator:
+                                      description: operator represents a key's relationship
+                                        to a set of values. Valid operators are In,
+                                        NotIn, Exists and DoesNotExist.
+                                      type: string
+                                    values:
+                                      description: values is an array of string values.
+                                        If the operator is In or NotIn, the values
+                                        array must be non-empty. If the operator is
+                                        Exists or DoesNotExist, the values array must
+                                        be empty. This array is replaced during a
+                                        strategic merge patch.
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                  required:
+                                  - key
+                                  - operator
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: matchLabels is a map of {key,value} pairs.
+                                  A single {key,value} in the matchLabels map is equivalent
+                                  to an element of matchExpressions, whose key field
+                                  is "key", the operator is "In", and the values array
+                                  contains only "value". The requirements are ANDed.
+                                type: object
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          type: array
+                        downsync:
+                          description: '`downsync` selects the objects to bind with
+                            the selected WECs for downsync, and describes how to collect
+                            the status from those WECs for each of the selected objects.
+                            An object is selected if it matches at least one member
+                            of this list. All of the referenced StatusCollectors are
+                            applied to the object.'
+                          items:
+                            description: DownsyncObjectTestAndStatusCollection identifies
+                              some objects (by a predicate) and asks for some combined
+                              status to be returned from those objects. The latter
+                              is dictated through applying a set of StatusCollectors.
+                            properties:
+                              apiGroup:
+                                description: '`apiGroup` is the API group of the referenced
+                                  object, empty string for the core API group. `nil`
+                                  matches every API group.'
+                                type: string
+                              namespaceSelectors:
+                                description: '`namespaceSelectors` a list of label
+                                  selectors. For a namespaced object, at least one
+                                  of these label selectors has to match the labels
+                                  of the Namespace object that defines the namespace
+                                  of the object that this DownsyncObjectTest is testing.
+                                  For a cluster-scoped object, at least one of these
+                                  label selectors must be `{}`. Empty list is a special
+                                  case, it matches every object.'
+                                items:
+                                  description: A label selector is a label query over
+                                    a set of resources. The result of matchLabels
+                                    and matchExpressions are ANDed. An empty label
+                                    selector matches all objects. A null label selector
+                                    matches no objects.
+                                  properties:
+                                    matchExpressions:
+                                      description: matchExpressions is a list of label
+                                        selector requirements. The requirements are
+                                        ANDed.
+                                      items:
+                                        description: A label selector requirement
+                                          is a selector that contains values, a key,
+                                          and an operator that relates the key and
+                                          values.
+                                        properties:
+                                          key:
+                                            description: key is the label key that
+                                              the selector applies to.
+                                            type: string
+                                          operator:
+                                            description: operator represents a key's
+                                              relationship to a set of values. Valid
+                                              operators are In, NotIn, Exists and
+                                              DoesNotExist.
+                                            type: string
+                                          values:
+                                            description: values is an array of string
+                                              values. If the operator is In or NotIn,
+                                              the values array must be non-empty.
+                                              If the operator is Exists or DoesNotExist,
+                                              the values array must be empty. This
+                                              array is replaced during a strategic
+                                              merge patch.
+                                            items:
+                                              type: string
+                                            type: array
+                                            x-kubernetes-list-type: atomic
+                                        required:
+                                        - key
+                                        - operator
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      description: matchLabels is a map of {key,value}
+                                        pairs. A single {key,value} in the matchLabels
+                                        map is equivalent to an element of matchExpressions,
+                                        whose key field is "key", the operator is
+                                        "In", and the values array contains only "value".
+                                        The requirements are ANDed.
+                                      type: object
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                type: array
+                              namespaces:
+                                description: '`namespaces` is a list of acceptable
+                                  names for the object''s namespace. An entry of `"*"`
+                                  means that any namespace is acceptable; this is
+                                  the only way to match a cluster-scoped object. If
+                                  this list contains `"*"` then it should contain
+                                  nothing else. Empty list is a special case, it matches
+                                  every object.'
+                                items:
+                                  type: string
+                                type: array
+                              objectNames:
+                                description: '`objectNames` is a list of object names
+                                  that match. An entry of `"*"` means that all match.
+                                  If this list contains `"*"` then it should contain
+                                  nothing else. Empty list is a special case, it matches
+                                  every object.'
+                                items:
+                                  type: string
+                                type: array
+                              objectSelectors:
+                                description: '`objectSelectors` is a list of label
+                                  selectors. At least one of them must match the labels
+                                  of the object being tested. Empty list is a special
+                                  case, it matches every object.'
+                                items:
+                                  description: A label selector is a label query over
+                                    a set of resources. The result of matchLabels
+                                    and matchExpressions are ANDed. An empty label
+                                    selector matches all objects. A null label selector
+                                    matches no objects.
+                                  properties:
+                                    matchExpressions:
+                                      description: matchExpressions is a list of label
+                                        selector requirements. The requirements are
+                                        ANDed.
+                                      items:
+                                        description: A label selector requirement
+                                          is a selector that contains values, a key,
+                                          and an operator that relates the key and
+                                          values.
+                                        properties:
+                                          key:
+                                            description: key is the label key that
+                                              the selector applies to.
+                                            type: string
+                                          operator:
+                                            description: operator represents a key's
+                                              relationship to a set of values. Valid
+                                              operators are In, NotIn, Exists and
+                                              DoesNotExist.
+                                            type: string
+                                          values:
+                                            description: values is an array of string
+                                              values. If the operator is In or NotIn,
+                                              the values array must be non-empty.
+                                              If the operator is Exists or DoesNotExist,
+                                              the values array must be empty. This
+                                              array is replaced during a strategic
+                                              merge patch.
+                                            items:
+                                              type: string
+                                            type: array
+                                            x-kubernetes-list-type: atomic
+                                        required:
+                                        - key
+                                        - operator
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      description: matchLabels is a map of {key,value}
+                                        pairs. A single {key,value} in the matchLabels
+                                        map is equivalent to an element of matchExpressions,
+                                        whose key field is "key", the operator is
+                                        "In", and the values array contains only "value".
+                                        The requirements are ANDed.
+                                      type: object
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                                type: array
+                              resources:
+                                description: '`resources` is a list of lowercase plural
+                                  names for the sorts of objects to match. An entry
+                                  of `"*"` means that all match. If this list contains
+                                  `"*"` then it should contain nothing else. Empty
+                                  list is a special case, it matches every object.'
+                                items:
+                                  type: string
+                                type: array
+                              statusCollectors:
+                                description: statusCollectors is a list of StatusCollectors
+                                  name references that are applied to the selected
+                                  objects. This API is under development and is not
+                                  yet functional.
+                                items:
+                                  type: string
+                                type: array
+                            type: object
+                          type: array
+                        wantSingletonReportedState:
+                          description: WantSingletonReportedState means that for objects
+                            that are distributed --- taking all BindingPolicies into
+                            account --- to exactly one WEC, the object's reported
+                            state from the WEC should be written to the object in
+                            its WDS. WantSingletonReportedState connotes an expectation
+                            that indeed the object will propagate to exactly one WEC,
+                            but there is no guaranteed reaction when this expectation
+                            is not met.
+                          type: boolean
+                      type: object
+                    condition:
+                      description: '`condition` is a CEL expression that completes
+                        the stage when evaluated to true.'
+                      type: string
+                    filter:
+                      description: '`filter` is a CEL expression that filters the
+                        CombinedStatuses that are considered for the ConditionExpression.'
+                      type: string
+                    name:
+                      description: '`name` is the name of the stage.'
+                      type: string
+                  required:
+                  - bindingPolicySpec
+                  - condition
+                  - filter
+                  - name
+                  type: object
+                type: array
+            required:
+            - stages
+            type: object
+          status:
+            description: StagedBindingPolicyStatus defines the observed state of StagedBindingPolicy.
+            properties:
+              activeStage:
+                description: '`activeStage` is the name of the active stage.'
+                type: string
+            required:
+            - activeStage
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
