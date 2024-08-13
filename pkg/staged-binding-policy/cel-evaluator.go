@@ -26,15 +26,6 @@ import (
 	"github.com/kubestellar/kubestellar/api/control/v1alpha1"
 )
 
-const (
-	// returnedKey is the key used to store the status of the object.
-	returnedKey = "returned"
-	// inventoryKey is the key used to store the inventory of the object.
-	inventoryKey = "inventory"
-	// sourceObjectKey is the key used to store the object.
-	sourceObjectKey = "obj"
-)
-
 // celEvaluator is a struct that holds the CEL environment
 // and provides a method to evaluate an expression with an unstructured object
 // as the context.
@@ -46,9 +37,7 @@ type celEvaluator struct {
 func newCELEvaluator() (*celEvaluator, error) {
 	env, err := cel.NewEnv(
 		cel.Declarations(
-			decls.NewVar(sourceObjectKey, decls.NewMapType(decls.String, decls.Dyn)),
-			decls.NewVar(returnedKey, decls.NewMapType(decls.String, decls.Dyn)),
-			decls.NewVar(inventoryKey, decls.NewMapType(decls.String, decls.String)),
+			decls.NewVar("obj", decls.NewMapType(decls.String, decls.Dyn)),
 		),
 	)
 	if err != nil {
