@@ -23,9 +23,9 @@ import (
 	sync "sync"
 	time "time"
 
-	versioned "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/clientset/versioned"
-	community "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/informers/externalversions/community"
-	internalinterfaces "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
+	versioned "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned"
+	community "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/community"
+	internalinterfaces "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

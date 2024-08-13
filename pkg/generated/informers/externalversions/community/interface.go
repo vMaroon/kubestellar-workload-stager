@@ -19,8 +19,8 @@ limitations under the License.
 package community
 
 import (
-	v1alpha1 "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/informers/externalversions/community/v1alpha1"
-	internalinterfaces "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/community/v1alpha1"
+	internalinterfaces "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to each of this group's versions.

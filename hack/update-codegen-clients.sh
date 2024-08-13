@@ -21,13 +21,13 @@ set -o xtrace
 
 SCRIPT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-if [ "$SCRIPT_ROOT" = "${SCRIPT_ROOT%/github.com/kubestellar-workload-stager}" ]; then
+if [ "$SCRIPT_ROOT" = "${SCRIPT_ROOT%/github.com/vMaroon/kubestellar-workload-stager}" ]; then
     cat >&2 <<EOF
 Your local copy of the kubestellar repository needs to be elsewhere.
 It is currently at '$SCRIPT_ROOT'.
 Due to a restriction in k8s.io/code-generator (its Issue 165),
 your local copy needs to be in a directory whose pathname
-ends in '/github.com/kubestellar/kubestellar'.
+ends in '/github.com/vMaroon/kubestellar-workload-stager'.
 EOF
     exit 1
 fi
@@ -38,7 +38,7 @@ rm -rf "${SCRIPT_ROOT}/pkg/generated"
 
 kube::codegen::gen_client \
     --with-watch \
-    --input-pkg-root github.com/kubestellar-workload-stager/api \
-    --output-pkg-root github.com/kubestellar-workload-stager/pkg/generated \
+    --input-pkg-root github.com/vMaroon/kubestellar-workload-stager/api \
+    --output-pkg-root github.com/vMaroon/kubestellar-workload-stager/pkg/generated \
     --output-base "${SCRIPT_ROOT}/../../.." \
     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate/boilerplate.generatego.txt"

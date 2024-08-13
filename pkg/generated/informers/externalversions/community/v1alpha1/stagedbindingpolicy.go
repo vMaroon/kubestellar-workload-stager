@@ -22,10 +22,10 @@ import (
 	"context"
 	time "time"
 
-	versioned "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/clientset/versioned"
-	internalinterfaces "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
-	v1alpha1 "GolandProjects/github.com/kubestellar-workload-stager/pkg/generated/listers/community/v1alpha1"
 	communityv1alpha1 "github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
+	versioned "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned"
+	internalinterfaces "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/listers/community/v1alpha1"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

@@ -23,6 +23,9 @@ import (
 
 	"github.com/go-logr/logr"
 	communityv1alpha1 "github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
+	sbpclient "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned"
+	sbpinformers "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions"
+	communityinformers "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/community/v1alpha1"
 	"github.com/vMaroon/kubestellar-workload-stager/pkg/generated/listers/community/v1alpha1"
 	"golang.org/x/time/rate"
 
@@ -60,6 +63,7 @@ type Controller struct {
 	logger                      logr.Logger
 	controlClient               controlclient.ControlV1alpha1Interface // used for Binding, BindingPolicy
 	ksInformerFactoryStart      func(stopCh <-chan struct{})
+	sbpInformerFactoryStart     func(stopCh <-chan struct{})
 	bindingInformer             cache.SharedIndexInformer
 	bindingLister               controllisters.BindingLister
 	combinedStatusInformer      cache.SharedIndexInformer
@@ -91,10 +95,17 @@ func NewController(parentLogger logr.Logger, wdsRestConfig *rest.Config, wdsName
 	if err != nil {
 		return nil, err
 	}
-	ksInformerFactory := ksinformers.NewSharedInformerFactory(ksClient, defaultResyncPeriod)
 
-	return makeController(logger, ksClient.ControlV1alpha1(), ksInformerFactory.Start,
-		ksInformerFactory.Control().V1alpha1(), wdsName)
+	sbpClient, err := sbpclient.NewForConfig(wdsRestConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	ksInformerFactory := ksinformers.NewSharedInformerFactory(ksClient, defaultResyncPeriod)
+	sbpInformerFactory := sbpinformers.NewSharedInformerFactory(sbpClient, defaultResyncPeriod)
+
+	return makeController(logger, ksClient.ControlV1alpha1(), ksInformerFactory.Start, sbpInformerFactory.Start,
+		ksInformerFactory.Control().V1alpha1(), sbpInformerFactory.Community().V1alpha1(), wdsName)
 }
 
 func computeBurstFromNumGVRs(nGVRs int) int {
@@ -126,7 +137,9 @@ func computeQPSFromNumGVRs(nGVRs int) float32 {
 func makeController(logger logr.Logger,
 	controlClient controlclient.ControlV1alpha1Interface,
 	ksInformerFactoryStart func(stopCh <-chan struct{}),
+	sbpInformerFactoryStart func(stopCh <-chan struct{}),
 	controlInformers controlinformers.Interface,
+	sbpInformers communityinformers.Interface,
 	wdsName string) (*Controller, error) {
 
 	ratelimiter := workqueue.NewMaxOfRateLimiter(
@@ -135,14 +148,17 @@ func makeController(logger logr.Logger,
 	)
 
 	controller := &Controller{
-		wdsName:                wdsName,
-		logger:                 logger,
-		controlClient:          controlClient,
-		ksInformerFactoryStart: ksInformerFactoryStart,
-		bindingInformer:        controlInformers.Bindings().Informer(),
-		bindingLister:          controlInformers.Bindings().Lister(),
-		combinedStatusInformer: controlInformers.CombinedStatuses().Informer(),
-		combinedStatusLister:   controlInformers.CombinedStatuses().Lister(),
+		wdsName:                     wdsName,
+		logger:                      logger,
+		controlClient:               controlClient,
+		ksInformerFactoryStart:      ksInformerFactoryStart,
+		sbpInformerFactoryStart:     sbpInformerFactoryStart,
+		bindingInformer:             controlInformers.Bindings().Informer(),
+		bindingLister:               controlInformers.Bindings().Lister(),
+		combinedStatusInformer:      controlInformers.CombinedStatuses().Informer(),
+		combinedStatusLister:        controlInformers.CombinedStatuses().Lister(),
+		stagedBindingPolicyInformer: sbpInformers.StagedBindingPolicies().Informer(),
+		stagedBindingPolicyLister:   sbpInformers.StagedBindingPolicies().Lister(),
 		workqueue: workqueue.NewRateLimitingQueueWithConfig(ratelimiter,
 			workqueue.RateLimitingQueueConfig{Name: ControllerName + "-" + wdsName}),
 	}
@@ -173,9 +189,13 @@ func (c *Controller) Start(parentCtx context.Context, workers int) error {
 	c.resolver = NewResolver(c.combinedStatusLister, c.controlClient, celEvaluator)
 
 	c.ksInformerFactoryStart(ctx.Done())
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.bindingInformer.HasSynced, c.combinedStatusInformer.HasSynced,
-		c.stagedBindingPolicyInformer.HasSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.bindingInformer.HasSynced, c.combinedStatusInformer.HasSynced); !ok {
 		return fmt.Errorf("failed to wait for KubeStellar informers to sync")
+	}
+
+	c.sbpInformerFactoryStart(ctx.Done())
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.stagedBindingPolicyInformer.HasSynced); !ok {
+		return fmt.Errorf("failed to wait for StagedBindingPolicy informers to sync")
 	}
 
 	errChan := make(chan error, 1)
