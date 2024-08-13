@@ -62,8 +62,6 @@ type Controller struct {
 	ksInformerFactoryStart      func(stopCh <-chan struct{})
 	bindingInformer             cache.SharedIndexInformer
 	bindingLister               controllisters.BindingLister
-	bindingPolicyInformer       cache.SharedIndexInformer
-	bindingPolicyLister         controllisters.BindingPolicyLister
 	combinedStatusInformer      cache.SharedIndexInformer
 	combinedStatusLister        controllisters.CombinedStatusLister
 	stagedBindingPolicyInformer cache.SharedIndexInformer
@@ -77,8 +75,8 @@ type Controller struct {
 	resolver Resolver
 }
 
-// bindingPolicyRef is a workqueue item that references a BindingPolicy.
-type bindingPolicyRef string
+// stagedBindingPolicyRef is a workqueue item that references a StagedBindingPolicy.
+type stagedBindingPolicyRef string
 
 // bindingRef is a workqueue item that references a Binding.
 type bindingRef string
@@ -143,8 +141,6 @@ func makeController(logger logr.Logger,
 		ksInformerFactoryStart: ksInformerFactoryStart,
 		bindingInformer:        controlInformers.Bindings().Informer(),
 		bindingLister:          controlInformers.Bindings().Lister(),
-		bindingPolicyInformer:  controlInformers.BindingPolicies().Informer(),
-		bindingPolicyLister:    controlInformers.BindingPolicies().Lister(),
 		combinedStatusInformer: controlInformers.CombinedStatuses().Informer(),
 		combinedStatusLister:   controlInformers.CombinedStatuses().Lister(),
 		workqueue: workqueue.NewRateLimitingQueueWithConfig(ratelimiter,
@@ -159,9 +155,6 @@ func (c *Controller) Start(parentCtx context.Context, workers int) error {
 	logger := klog.FromContext(parentCtx).WithName(ControllerName)
 	ctx := klog.NewContext(parentCtx, logger)
 
-	if err := c.setupBindingPolicyInformer(ctx); err != nil {
-		return err
-	}
 	if err := c.setupBindingInformer(ctx); err != nil {
 		return err
 	}
@@ -180,7 +173,8 @@ func (c *Controller) Start(parentCtx context.Context, workers int) error {
 	c.resolver = NewResolver(c.combinedStatusLister, c.controlClient, celEvaluator)
 
 	c.ksInformerFactoryStart(ctx.Done())
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.bindingPolicyInformer.HasSynced, c.bindingInformer.HasSynced); !ok {
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.bindingInformer.HasSynced, c.combinedStatusInformer.HasSynced,
+		c.stagedBindingPolicyInformer.HasSynced); !ok {
 		return fmt.Errorf("failed to wait for KubeStellar informers to sync")
 	}
 
@@ -218,52 +212,20 @@ func (c *Controller) run(ctx context.Context, workers int) error {
 	return nil
 }
 
-func (c *Controller) setupBindingPolicyInformer(ctx context.Context) error {
-	logger := klog.FromContext(ctx)
-	_, err := c.bindingPolicyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			bp := obj.(*ksv1alpha1.BindingPolicy)
-			logger.V(5).Info("Enqueuing reference to BindingPolicy because of informer add event", "name", bp.Name, "resourceVersion", bp.ResourceVersion)
-			c.workqueue.Add(bindingPolicyRef(bp.Name))
-		},
-		UpdateFunc: func(old, new interface{}) {
-			oldBP := old.(*ksv1alpha1.BindingPolicy)
-			newBP := new.(*ksv1alpha1.BindingPolicy)
-			if oldBP.Generation != newBP.Generation {
-				logger.V(5).Info("Enqueuing reference to BindingPolicy because of informer update event", "name", newBP.Name, "resourceVersion", newBP.ResourceVersion)
-				c.workqueue.Add(bindingPolicyRef(newBP.Name))
-			}
-		},
-		DeleteFunc: func(obj interface{}) {
-			if typed, is := obj.(cache.DeletedFinalStateUnknown); is {
-				obj = typed.Obj
-			}
-			bp := obj.(*ksv1alpha1.BindingPolicy)
-			logger.V(5).Info("Enqueuing reference to BindingPolicy because of informer delete event", "name", bp.Name)
-			c.workqueue.Add(bindingPolicyRef(bp.Name))
-		},
-	})
-	if err != nil {
-		c.logger.Error(err, "failed to add bindingpolicies informer event handler")
-		return err
-	}
-	return nil
-}
-
 func (c *Controller) setupBindingInformer(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
 	_, err := c.bindingInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			bdg := obj.(*ksv1alpha1.Binding)
 			logger.V(5).Info("Enqueuing reference to Binding because of informer add event", "name", bdg.Name, "resourceVersion", bdg.ResourceVersion)
-			c.workqueue.Add(bindingPolicyRef(bdg.Name))
+			c.workqueue.Add(bindingRef(bdg.Name))
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldBdg := old.(*ksv1alpha1.Binding)
 			newBdg := new.(*ksv1alpha1.Binding)
 			if oldBdg.Generation != newBdg.Generation {
 				logger.V(5).Info("Enqueuing reference to Binding because of informer update event", "name", newBdg.Name, "resourceVersion", newBdg.ResourceVersion)
-				c.workqueue.Add(bindingPolicyRef(newBdg.Name))
+				c.workqueue.Add(bindingRef(newBdg.Name))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -272,7 +234,7 @@ func (c *Controller) setupBindingInformer(ctx context.Context) error {
 			}
 			bdg := obj.(*ksv1alpha1.Binding)
 			logger.V(5).Info("Enqueuing reference to Binding because of informer delete event", "name", bdg.Name)
-			c.workqueue.Add(bindingPolicyRef(bdg.Name))
+			c.workqueue.Add(bindingRef(bdg.Name))
 		},
 	})
 	if err != nil {
@@ -288,14 +250,14 @@ func (c *Controller) setupCombinedStatusInformer(ctx context.Context) error {
 		AddFunc: func(obj interface{}) {
 			cs := obj.(*ksv1alpha1.CombinedStatus)
 			logger.V(5).Info("Enqueuing reference to CombinedStatus because of informer add event", "name", cs.Name, "resourceVersion", cs.ResourceVersion)
-			c.workqueue.Add(combinedStatusRef(cs.Name))
+			c.enqueueCombinedStatus(obj)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldCS := old.(*ksv1alpha1.CombinedStatus)
 			newCS := new.(*ksv1alpha1.CombinedStatus)
 			if oldCS.Generation != newCS.Generation {
 				logger.V(5).Info("Enqueuing reference to CombinedStatus because of informer update event", "name", newCS.Name, "resourceVersion", newCS.ResourceVersion)
-				c.workqueue.Add(combinedStatusRef(newCS.Name))
+				c.enqueueCombinedStatus(new)
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -304,7 +266,7 @@ func (c *Controller) setupCombinedStatusInformer(ctx context.Context) error {
 			}
 			cs := obj.(*ksv1alpha1.CombinedStatus)
 			logger.V(5).Info("Enqueuing reference to CombinedStatus because of informer delete event", "name", cs.Name)
-			c.workqueue.Add(combinedStatusRef(cs.Name))
+			c.enqueueCombinedStatus(obj)
 		},
 	})
 	if err != nil {
@@ -314,20 +276,30 @@ func (c *Controller) setupCombinedStatusInformer(ctx context.Context) error {
 	return nil
 }
 
+func (c *Controller) enqueueCombinedStatus(obj any) {
+	ref, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		c.logger.Error(err, "failed to get key for CombinedStatus", "obj", obj)
+		return
+	}
+
+	c.workqueue.Add(combinedStatusRef(ref))
+}
+
 func (c *Controller) setupStagedBindingPolicyInformer(ctx context.Context) error {
 	logger := klog.FromContext(ctx)
 	_, err := c.stagedBindingPolicyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			sbp := obj.(*communityv1alpha1.StagedBindingPolicy)
 			logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer add event", "name", sbp.Name, "resourceVersion", sbp.ResourceVersion)
-			c.workqueue.Add(sbp.Name)
+			c.workqueue.Add(stagedBindingPolicyRef(sbp.Name))
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldSBP := old.(*communityv1alpha1.StagedBindingPolicy)
 			newSBP := new.(*communityv1alpha1.StagedBindingPolicy)
 			if oldSBP.Generation != newSBP.Generation {
 				logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer update event", "name", newSBP.Name, "resourceVersion", newSBP.ResourceVersion)
-				c.workqueue.Add(newSBP.Name)
+				c.workqueue.Add(stagedBindingPolicyRef(newSBP.Name))
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -336,7 +308,7 @@ func (c *Controller) setupStagedBindingPolicyInformer(ctx context.Context) error
 			}
 			sbp := obj.(*communityv1alpha1.StagedBindingPolicy)
 			logger.V(5).Info("Enqueuing reference to StagedBindingPolicy because of informer delete event", "name", sbp.Name)
-			c.workqueue.Add(sbp.Name)
+			c.workqueue.Add(stagedBindingPolicyRef(sbp.Name))
 		},
 	})
 	if err != nil {
@@ -436,6 +408,15 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 
 func (c *Controller) reconcile(ctx context.Context, item any) error {
 	logger := klog.FromContext(ctx)
+
+	switch item := item.(type) {
+	case stagedBindingPolicyRef:
+		return c.syncStagedBindingPolicy(ctx, string(item))
+	case bindingRef:
+		return c.processBinding(ctx, string(item))
+	case combinedStatusRef:
+		return c.processCombinedStatus(ctx, string(item))
+	}
 
 	logger.Error(nil, "Impossible workqueue entry", "type", fmt.Sprintf("%T", item), "value", item)
 	return nil
