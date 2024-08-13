@@ -34,7 +34,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1alpha12 "github.com/kubestellar/kubestellar/api/control/v1alpha1"
-	ksclient "github.com/kubestellar/kubestellar/pkg/generated/clientset/versioned"
+	controlclient "github.com/kubestellar/kubestellar/pkg/generated/clientset/versioned/typed/control/v1alpha1"
 	controllisters "github.com/kubestellar/kubestellar/pkg/generated/listers/control/v1alpha1"
 	"github.com/kubestellar/kubestellar/pkg/util"
 )
@@ -64,6 +64,8 @@ type Resolver interface {
 	// NoteStagedBindingPolicy notes a staged binding policy, ensuring that it
 	// is tracked and its active stage is deployed as a binding policy.
 	NoteStagedBindingPolicy(context.Context, *v1alpha1.StagedBindingPolicy) error
+	// DeleteStagedBindingPolicy deletes a staged binding policy from the resolver.
+	DeleteStagedBindingPolicy(context.Context, string)
 	// NoteBinding notes a binding if associated with a staged binding policy.
 	// The binding's spec is used to set the space of objects that are checked
 	// against the condition of the active stage, after filtering.
@@ -76,14 +78,15 @@ type Resolver interface {
 
 type resolver struct {
 	combinedStatusLister controllisters.CombinedStatusLister
-	ksClient             *ksclient.Clientset
+	ksControlClient      controlclient.ControlV1alpha1Interface
 	celEvaluator         *celEvaluator
 
-	sync.RWMutex
+	sync.Mutex
 	stagedBindingPolicies map[string]*stagedBindingPolicyData
 }
 
 type stagedBindingPolicyData struct {
+	uid    types.UID
 	stages []v1alpha1.Stage
 
 	activeIndex            int
@@ -93,10 +96,10 @@ type stagedBindingPolicyData struct {
 }
 
 func NewResolver(combinedStatusLister controllisters.CombinedStatusLister,
-	ksClient *ksclient.Clientset, celEvaluator *celEvaluator) Resolver {
+	controlclient controlclient.ControlV1alpha1Interface, celEvaluator *celEvaluator) Resolver {
 	return &resolver{
 		combinedStatusLister:  combinedStatusLister,
-		ksClient:              ksClient,
+		ksControlClient:       controlclient,
 		celEvaluator:          celEvaluator,
 		stagedBindingPolicies: make(map[string]*stagedBindingPolicyData),
 	}
@@ -116,12 +119,21 @@ func (r *resolver) NoteStagedBindingPolicy(ctx context.Context, sbp *v1alpha1.St
 	}
 
 	r.stagedBindingPolicies[sbp.Name] = &stagedBindingPolicyData{
+		uid:         sbp.UID,
 		stages:      sbp.Spec.Stages,
 		activeIndex: activeStage,
 	}
 
 	// ensure a bp for the active stage
 	return r.ensureActiveStageLocked(ctx, sbp.Name, r.stagedBindingPolicies[sbp.Name])
+}
+
+// DeleteStagedBindingPolicy deletes a staged binding policy from the resolver.
+func (r *resolver) DeleteStagedBindingPolicy(ctx context.Context, sbpName string) {
+	r.Lock()
+	defer r.Unlock()
+
+	delete(r.stagedBindingPolicies, sbpName)
 }
 
 // NoteBinding notes a binding if associated with a staged binding policy.
@@ -251,12 +263,18 @@ func (r *resolver) stageUpLocked(ctx context.Context, sbpName string) {
 func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 	sbpData *stagedBindingPolicyData) error {
 	// ensure a bp for the active stage
-	if _, err := r.ksClient.ControlV1alpha1().BindingPolicies().Get(ctx, sbpName, metav1.GetOptions{}); err != nil {
+	if _, err := r.ksControlClient.BindingPolicies().Get(ctx, sbpName, metav1.GetOptions{}); err != nil {
 		if errors.IsNotFound(err) {
-			bpEcho, err := r.ksClient.ControlV1alpha1().BindingPolicies().Create(ctx, &v1alpha12.BindingPolicy{
+			bpEcho, err := r.ksControlClient.BindingPolicies().Create(ctx, &v1alpha12.BindingPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: sbpName,
-				},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: v1alpha1.GroupVersion.String(),
+							Kind:       "StagedBindingPolicy",
+							Name:       sbpName,
+							UID:        sbpData.uid,
+						}}},
 				Spec: sbpData.stages[sbpData.activeIndex].BindingPolicySpec,
 			}, metav1.CreateOptions{})
 
@@ -269,10 +287,16 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 		}
 	}
 
-	bpEcho, err := r.ksClient.ControlV1alpha1().BindingPolicies().Update(ctx, &v1alpha12.BindingPolicy{
+	bpEcho, err := r.ksControlClient.BindingPolicies().Update(ctx, &v1alpha12.BindingPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sbpName,
-		},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       "StagedBindingPolicy",
+					Name:       sbpName,
+					UID:        sbpData.uid,
+				}}},
 		Spec: sbpData.stages[sbpData.activeIndex].BindingPolicySpec,
 	}, metav1.UpdateOptions{})
 	if err != nil {
