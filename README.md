@@ -9,7 +9,32 @@ A StagedBindingPolicy introduces the concept of staged placement - where each st
 and a condition (CEL) that must be satisfied for the stage to be considered fulfilled.
 
 ```yaml
-TODO
+apiVersion: community.kubestellar.io/v1alpha1
+kind: StagedBindingPolicy
+metadata:
+  name: nginx-staged-bindingpolicy
+spec:
+  stages:
+    - name: dev
+      bindingPolicySpec:
+        clusterSelectors:
+          - matchLabels: {"env":"dev"}
+        downsync:
+          - statusCollectors:
+              - deployments-aggregator
+            objectSelectors:
+              - matchLabels: {"app.kubernetes.io/name":"nginx"}
+      filter: downsyncClause.resource == "deployments"
+      condition: obj.results.exists(r, r.name == 'deployments-aggregator' && r.rows.exists(row, row.columns.exists(col, col.type == 'Number' && col.float == '1')))
+    - name: prod
+      bindingPolicySpec:
+        clusterSelectors:
+          - matchLabels: {"env":"prod"}
+        downsync:
+          - statusCollectors:
+              - deployments-aggregator
+            objectSelectors:
+              - matchLabels: {"app.kubernetes.io/name":"nginx"}
    ```
 
 As visible in the sample CR, a stage consists of:
