@@ -58,9 +58,11 @@ type Stage struct {
 	// `bindingPolicySpec` defines the BindingPolicy that is used in this stage.
 	BindingPolicySpec v1alpha1.BindingPolicySpec `json:"bindingPolicySpec"`
 	// `filter` is a CEL expression that filters the resources that are checked against the condition.
-	Filter v1alpha1.Expression `json:"filter"`
+	// +optional
+	Filter *v1alpha1.Expression `json:"filter"`
 	// `condition` is a CEL expression that completes the stage when evaluated to true.
-	Condition v1alpha1.Expression `json:"condition"`
+	// +optional
+	Condition *v1alpha1.Expression `json:"condition"`
 }
 
 // StagedBindingPolicyStatus defines the observed state of StagedBindingPolicy.
