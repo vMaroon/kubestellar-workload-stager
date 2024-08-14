@@ -37,7 +37,7 @@ type celEvaluator struct {
 func newCELEvaluator() (*celEvaluator, error) {
 	env, err := cel.NewEnv(
 		cel.Declarations(
-			decls.NewVar("obj", decls.NewMapType(decls.String, decls.Dyn)),
+			decls.NewVar("combinedStatus", decls.NewMapType(decls.String, decls.Dyn)),
 			decls.NewVar("downsyncClause", decls.NewMapType(decls.String, decls.Dyn)),
 		),
 	)

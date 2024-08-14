@@ -132,7 +132,12 @@ func (r *resolver) NoteStagedBindingPolicy(ctx context.Context, sbp *v1alpha1.St
 	}
 
 	// ensure a bp for the active stage
-	return r.ensureActiveStageLocked(ctx, sbp.Name, r.stagedBindingPolicies[sbp.Name])
+	if err := r.ensureActiveStageLocked(ctx, sbp.Name, r.stagedBindingPolicies[sbp.Name]); err != nil {
+		return err
+	}
+
+	r.attemptConditionLocked(ctx, sbp.Name)
+	return nil
 }
 
 // DeleteStagedBindingPolicy deletes a staged binding policy from the resolver.
@@ -242,7 +247,7 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 		}
 
 		if testExpression(ctx, r.celEvaluator, *sbpData.stages[sbpData.activeIndex].Condition, map[string]interface{}{
-			"obj": serializedCombinedStatus, // assuming one match, TODO: trim down to relevant match
+			"combinedStatus": serializedCombinedStatus, // assuming one match, TODO: trim down to relevant match
 		}) == false {
 			return // condition not satisfied
 		}

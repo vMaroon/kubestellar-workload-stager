@@ -18,18 +18,25 @@ metadata:
 spec:
   downsync:
     - statusCollectors:
-      - deployments-aggregator
+        - deployments-aggregator
       objectSelectors:
-      - matchLabels: {"app.kubernetes.io/name":"nginx"}
+        - matchLabels: {"app.kubernetes.io/name":"nginx"}
   stages:
     - name: dev
       clusterSelectors:
-      - matchLabels: {"env":"dev"}
+        - matchLabels: {"env":"dev"}
       filter: downsyncClause.resource == "deployments"
-      condition: obj.results.exists(r, r.name == 'deployments-aggregator' && r.rows.exists(row, row.columns.exists(col, col.type == 'Number' && col.float == '1')))
+      condition: |
+        combinedStatus.results.exists(r,
+          r.name == 'deployments-aggregator' &&
+          r.rows.exists(row,
+            row.columns.exists(col,
+              col.type == 'Number' &&
+              col.float == '1'
+        )))
     - name: prod
       clusterSelectors:
-      - matchLabels: {"env":"prod"}
+        - matchLabels: {"env":"prod"}
    ```
 
 Breaking down the StagedBindingPolicy resource:
