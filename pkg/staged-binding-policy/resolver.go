@@ -18,6 +18,7 @@ package staged_binding_policy
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/runtime"
 	"strconv"
 	"sync"
 
@@ -195,6 +196,10 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 		return // no more stages
 	}
 
+	if sbpData.stages[sbpData.activeIndex].Condition == nil {
+		return // no condition to satisfy
+	}
+
 	filteredObjIdentifiers := filterWorkloadForSBP(ctx, r.celEvaluator, &sbpData.bindingSpec.Workload,
 		sbpData.stages[sbpData.activeIndex].Filter)
 
@@ -225,8 +230,13 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 		}
 
 		// evaluate the condition
-		if testExpression(ctx, r.celEvaluator, sbpData.stages[sbpData.activeIndex].Condition, map[string]interface{}{
-			"obj": combinedStatuses[0], // assuming one match, TODO: trim down to relevant match
+		serializedCombinedStatus, err := serializeObject(combinedStatuses[0])
+		if err != nil {
+			return
+		}
+
+		if testExpression(ctx, r.celEvaluator, *sbpData.stages[sbpData.activeIndex].Condition, map[string]interface{}{
+			"obj": serializedCombinedStatus, // assuming one match, TODO: trim down to relevant match
 		}) == false {
 			return // condition not satisfied
 		}
@@ -263,7 +273,8 @@ func (r *resolver) stageUpLocked(ctx context.Context, sbpName string) {
 func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 	sbpData *stagedBindingPolicyData) error {
 	// ensure a bp for the active stage
-	if _, err := r.ksControlClient.BindingPolicies().Get(ctx, sbpName, metav1.GetOptions{}); err != nil {
+	bpEcho, err := r.ksControlClient.BindingPolicies().Get(ctx, sbpName, metav1.GetOptions{})
+	if err != nil {
 		if errors.IsNotFound(err) {
 			bpEcho, err := r.ksControlClient.BindingPolicies().Create(ctx, &v1alpha12.BindingPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -287,7 +298,7 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 		}
 	}
 
-	bpEcho, err := r.ksControlClient.BindingPolicies().Update(ctx, &v1alpha12.BindingPolicy{
+	bpEcho, err = r.ksControlClient.BindingPolicies().Update(ctx, &v1alpha12.BindingPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sbpName,
 			OwnerReferences: []metav1.OwnerReference{
@@ -296,7 +307,9 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 					Kind:       "StagedBindingPolicy",
 					Name:       sbpName,
 					UID:        sbpData.uid,
-				}}},
+				}},
+			ResourceVersion: bpEcho.ResourceVersion,
+		},
 		Spec: sbpData.stages[sbpData.activeIndex].BindingPolicySpec,
 	}, metav1.UpdateOptions{})
 	if err != nil {
@@ -308,12 +321,12 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 }
 
 func filterWorkloadForSBP(ctx context.Context, celEvaluator *celEvaluator, workload *v1alpha12.DownsyncObjectClauses,
-	expression v1alpha12.Expression) sets.Set[util.ObjectIdentifier] {
+	expression *v1alpha12.Expression) sets.Set[util.ObjectIdentifier] {
 	filtered := sets.New[util.ObjectIdentifier]()
 
 	for _, downsyncClause := range workload.ClusterScope {
-		if testExpression(ctx, celEvaluator, expression, map[string]interface{}{
-			"obj": clusterScopeDownsyncObjectToMap(downsyncClause),
+		if expression != nil && testExpression(ctx, celEvaluator, *expression, map[string]interface{}{
+			"downsyncClause": clusterScopeDownsyncObjectToMap(downsyncClause),
 		}) == false {
 			continue
 		}
@@ -330,8 +343,8 @@ func filterWorkloadForSBP(ctx context.Context, celEvaluator *celEvaluator, workl
 	}
 
 	for _, downsyncClause := range workload.NamespaceScope {
-		if testExpression(ctx, celEvaluator, expression, map[string]interface{}{
-			"obj": namespaceScopeDownsyncObjectToMap(downsyncClause),
+		if expression != nil && testExpression(ctx, celEvaluator, *expression, map[string]interface{}{
+			"downsyncClause": namespaceScopeDownsyncObjectToMap(downsyncClause),
 		}) == false {
 			continue
 		}
@@ -352,7 +365,7 @@ func filterWorkloadForSBP(ctx context.Context, celEvaluator *celEvaluator, workl
 }
 func clusterScopeDownsyncObjectToMap(downsyncClause v1alpha12.ClusterScopeDownsyncClause) map[string]interface{} {
 	return map[string]interface{}{
-		"group":           downsyncClause.Version,
+		"group":           downsyncClause.Group,
 		"version":         downsyncClause.Version,
 		"resource":        downsyncClause.Resource,
 		"name":            downsyncClause.Name,
@@ -371,13 +384,23 @@ func namespaceScopeDownsyncObjectToMap(downsyncClause v1alpha12.NamespaceScopeDo
 	}
 }
 
+// serializeObject converts a runtime.Object to an unstructured map.
+func serializeObject(obj runtime.Object) (map[string]interface{}, error) {
+	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil, err
+	}
+
+	return u, nil
+}
+
 func testExpression(ctx context.Context, celEvaluator *celEvaluator, expression v1alpha12.Expression,
 	objMap map[string]interface{}) bool {
 	logger := klog.FromContext(ctx)
 	test, err := celEvaluator.Evaluate(expression, objMap)
 
 	if err != nil {
-		logger.Error(err, "error evaluating filter expression", "expression", expression,
+		logger.Error(err, "error evaluating expression", "expression", expression,
 			"object", objMap)
 		return false
 	}
