@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	communityv1alpha1 "github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
 	sbpclient "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned"
+	communityclient "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned/typed/community/v1alpha1"
 	sbpinformers "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions"
 	communityinformers "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/informers/externalversions/community/v1alpha1"
 	"github.com/vMaroon/kubestellar-workload-stager/pkg/generated/listers/community/v1alpha1"
@@ -61,7 +62,8 @@ const (
 
 type Controller struct {
 	logger                      logr.Logger
-	controlClient               controlclient.ControlV1alpha1Interface // used for Binding, BindingPolicy
+	controlClient               controlclient.ControlV1alpha1Interface     // used for Binding, BindingPolicy
+	communityClient             communityclient.CommunityV1alpha1Interface // used for StagedBindingPolicy
 	ksInformerFactoryStart      func(stopCh <-chan struct{})
 	sbpInformerFactoryStart     func(stopCh <-chan struct{})
 	bindingInformer             cache.SharedIndexInformer
@@ -104,7 +106,7 @@ func NewController(parentLogger logr.Logger, wdsRestConfig *rest.Config, wdsName
 	ksInformerFactory := ksinformers.NewSharedInformerFactory(ksClient, defaultResyncPeriod)
 	sbpInformerFactory := sbpinformers.NewSharedInformerFactory(sbpClient, defaultResyncPeriod)
 
-	return makeController(logger, ksClient.ControlV1alpha1(), ksInformerFactory.Start, sbpInformerFactory.Start,
+	return makeController(logger, ksClient.ControlV1alpha1(), sbpClient.CommunityV1alpha1(), ksInformerFactory.Start, sbpInformerFactory.Start,
 		ksInformerFactory.Control().V1alpha1(), sbpInformerFactory.Community().V1alpha1(), wdsName)
 }
 
@@ -136,6 +138,7 @@ func computeQPSFromNumGVRs(nGVRs int) float32 {
 
 func makeController(logger logr.Logger,
 	controlClient controlclient.ControlV1alpha1Interface,
+	communityClient communityclient.CommunityV1alpha1Interface,
 	ksInformerFactoryStart func(stopCh <-chan struct{}),
 	sbpInformerFactoryStart func(stopCh <-chan struct{}),
 	controlInformers controlinformers.Interface,
@@ -151,6 +154,7 @@ func makeController(logger logr.Logger,
 		wdsName:                     wdsName,
 		logger:                      logger,
 		controlClient:               controlClient,
+		communityClient:             communityClient,
 		ksInformerFactoryStart:      ksInformerFactoryStart,
 		sbpInformerFactoryStart:     sbpInformerFactoryStart,
 		bindingInformer:             controlInformers.Bindings().Informer(),
@@ -186,7 +190,7 @@ func (c *Controller) Start(parentCtx context.Context, workers int) error {
 		return err
 	}
 
-	c.resolver = NewResolver(c.combinedStatusLister, c.controlClient, celEvaluator)
+	c.resolver = NewResolver(c.combinedStatusLister, c.controlClient, c.communityClient, celEvaluator)
 
 	c.ksInformerFactoryStart(ctx.Done())
 	if ok := cache.WaitForCacheSync(ctx.Done(), c.bindingInformer.HasSynced, c.combinedStatusInformer.HasSynced); !ok {

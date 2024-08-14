@@ -18,15 +18,16 @@ package staged_binding_policy
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/runtime"
 	"strconv"
 	"sync"
 
 	"github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
+	communityclient "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned/typed/community/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,6 +81,7 @@ type Resolver interface {
 type resolver struct {
 	combinedStatusLister controllisters.CombinedStatusLister
 	ksControlClient      controlclient.ControlV1alpha1Interface
+	sbpCommunityClient   communityclient.CommunityV1alpha1Interface
 	celEvaluator         *celEvaluator
 
 	sync.Mutex
@@ -87,8 +89,9 @@ type resolver struct {
 }
 
 type stagedBindingPolicyData struct {
-	uid    types.UID
-	stages []v1alpha1.Stage
+	uid      types.UID
+	downsync []v1alpha12.DownsyncPolicyClause
+	stages   []v1alpha1.Stage
 
 	activeIndex            int
 	activeBindingPolicyUID types.UID
@@ -97,10 +100,12 @@ type stagedBindingPolicyData struct {
 }
 
 func NewResolver(combinedStatusLister controllisters.CombinedStatusLister,
-	controlclient controlclient.ControlV1alpha1Interface, celEvaluator *celEvaluator) Resolver {
+	controlclient controlclient.ControlV1alpha1Interface, communityclient communityclient.CommunityV1alpha1Interface,
+	celEvaluator *celEvaluator) Resolver {
 	return &resolver{
 		combinedStatusLister:  combinedStatusLister,
 		ksControlClient:       controlclient,
+		sbpCommunityClient:    communityclient,
 		celEvaluator:          celEvaluator,
 		stagedBindingPolicies: make(map[string]*stagedBindingPolicyData),
 	}
@@ -121,6 +126,7 @@ func (r *resolver) NoteStagedBindingPolicy(ctx context.Context, sbp *v1alpha1.St
 
 	r.stagedBindingPolicies[sbp.Name] = &stagedBindingPolicyData{
 		uid:         sbp.UID,
+		downsync:    sbp.Spec.Downsync,
 		stages:      sbp.Spec.Stages,
 		activeIndex: activeStage,
 	}
@@ -286,7 +292,10 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 							Name:       sbpName,
 							UID:        sbpData.uid,
 						}}},
-				Spec: sbpData.stages[sbpData.activeIndex].BindingPolicySpec,
+				Spec: v1alpha12.BindingPolicySpec{
+					Downsync:         sbpData.downsync,
+					ClusterSelectors: sbpData.stages[sbpData.activeIndex].ClusterSelectors,
+				},
 			}, metav1.CreateOptions{})
 
 			if err != nil {
@@ -310,14 +319,30 @@ func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 				}},
 			ResourceVersion: bpEcho.ResourceVersion,
 		},
-		Spec: sbpData.stages[sbpData.activeIndex].BindingPolicySpec,
+		Spec: v1alpha12.BindingPolicySpec{
+			Downsync:         sbpData.downsync,
+			ClusterSelectors: sbpData.stages[sbpData.activeIndex].ClusterSelectors,
+		},
 	}, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
 
 	sbpData.activeBindingPolicyUID = bpEcho.UID
-	return nil
+	return r.updateStagedBindingPolicyStatusLocked(ctx, sbpName, sbpData.activeIndex)
+}
+
+func (r *resolver) updateStagedBindingPolicyStatusLocked(ctx context.Context, sbpName string, activeStage int) error {
+	sbp, err := r.sbpCommunityClient.StagedBindingPolicies().Get(ctx, sbpName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	sbp = sbp.DeepCopy()
+	sbp.Status.ActiveStage = r.stagedBindingPolicies[sbpName].stages[activeStage].Name
+	_, err = r.sbpCommunityClient.StagedBindingPolicies().UpdateStatus(ctx, sbp, metav1.UpdateOptions{})
+
+	return err
 }
 
 func filterWorkloadForSBP(ctx context.Context, celEvaluator *celEvaluator, workload *v1alpha12.DownsyncObjectClauses,

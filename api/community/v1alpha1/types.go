@@ -47,6 +47,9 @@ type StagedBindingPolicy struct {
 
 // StagedBindingPolicySpec defines the desired state of StagedBindingPolicy.
 type StagedBindingPolicySpec struct {
+	// `downsync` is the BindingPolicy.spec.downsync to be used in the stages. Which defines
+	// the `what` of the workload.
+	Downsync []v1alpha1.DownsyncPolicyClause `json:"downsync,omitempty"`
 	// Stages is a list of stages that define the order in which the BindingPolicies are generated.
 	Stages []Stage `json:"stages"`
 }
@@ -55,8 +58,9 @@ type StagedBindingPolicySpec struct {
 type Stage struct {
 	// `name` is the name of the stage.
 	Name string `json:"name"`
-	// `bindingPolicySpec` defines the BindingPolicy that is used in this stage.
-	BindingPolicySpec v1alpha1.BindingPolicySpec `json:"bindingPolicySpec"`
+	// `clusterSelectors` is the BindingPolicy.spec.clusterSelectors to be used in the stage. Which defines
+	// the `where` of the workload.
+	ClusterSelectors []metav1.LabelSelector `json:"clusterSelectors,omitempty"`
 	// `filter` is a CEL expression that filters the resources that are checked against the condition.
 	// +optional
 	Filter *v1alpha1.Expression `json:"filter"`
