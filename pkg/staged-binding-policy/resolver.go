@@ -19,6 +19,7 @@ package staged_binding_policy
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
@@ -240,9 +241,17 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 			return // missing combined status, cannot satisfy full condition
 		}
 
-		// evaluate the condition
-		serializedCombinedStatus, err := serializeObject(combinedStatuses[0])
-		if err != nil {
+		var serializedCombinedStatus map[string]interface{}
+		for _, cs := range combinedStatuses {
+			if strings.Contains(cs.GetName(), string(sbpData.activeBindingPolicyUID)) {
+				serializedCombinedStatus, err = serializeObject(cs)
+				if err != nil {
+					return
+				}
+			}
+		}
+		// if couldnt find any relevant cs, return
+		if serializedCombinedStatus == nil {
 			return
 		}
 
