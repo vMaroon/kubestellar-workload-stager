@@ -18,14 +18,14 @@ package staged_binding_policy
 
 import (
 	"context"
-	"strconv"
+	"fmt"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"strings"
 	"sync"
 
 	"github.com/vMaroon/kubestellar-workload-stager/api/community/v1alpha1"
 	communityclient "github.com/vMaroon/kubestellar-workload-stager/pkg/generated/clientset/versioned/typed/community/v1alpha1"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -120,8 +120,11 @@ func (r *resolver) NoteStagedBindingPolicy(ctx context.Context, sbp *v1alpha1.St
 
 	activeStage := 0
 	if sbp.Status.ActiveStage != "" {
-		if numeric, err := strconv.ParseInt(sbp.Status.ActiveStage, 10, 64); err != nil {
-			activeStage = int(numeric)
+		for i, stage := range sbp.Spec.Stages {
+			if stage.Name == sbp.Status.ActiveStage {
+				activeStage = i
+				break
+			}
 		}
 	}
 
@@ -156,7 +159,17 @@ func (r *resolver) NoteBinding(ctx context.Context, binding *v1alpha12.Binding) 
 	r.Lock()
 	defer r.Unlock()
 
-	sbpData, ok := r.stagedBindingPolicies[binding.Name]
+	associatedBindingName := binding.Name
+
+	// remove stage suffix
+	suffix := strings.Split(associatedBindingName, ".stage.")
+	if len(suffix) != 2 {
+		return // malformed
+	}
+
+	associatedBindingName = suffix[0]
+
+	sbpData, ok := r.stagedBindingPolicies[associatedBindingName]
 	if !ok {
 		return // no staged binding policy
 	}
@@ -173,7 +186,7 @@ func (r *resolver) NoteBinding(ctx context.Context, binding *v1alpha12.Binding) 
 	sbpData.bindingSpec = binding.Spec // readonly
 
 	// attempt to stage up
-	r.attemptConditionLocked(ctx, binding.Name)
+	r.attemptConditionLocked(ctx, associatedBindingName)
 }
 
 // NoteCombinedStatus notes a combined status if associated with a staged
@@ -187,6 +200,14 @@ func (r *resolver) NoteCombinedStatus(ctx context.Context, combinedStatus *v1alp
 	if associatedBindingName == "" {
 		return // malformed
 	}
+
+	// remove stage suffix
+	suffix := strings.Split(associatedBindingName, ".stage.")
+	if len(suffix) != 2 {
+		return // malformed
+	}
+
+	associatedBindingName = suffix[0]
 
 	// attempt to stage up relevant resolver entries
 	for sbpName := range r.stagedBindingPolicies {
@@ -215,6 +236,10 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 	filteredObjIdentifiers := filterWorkloadForSBP(ctx, r.celEvaluator, &sbpData.bindingSpec.Workload,
 		sbpData.stages[sbpData.activeIndex].Filter)
 
+	if len(filteredObjIdentifiers) == 0 {
+		return // no objects to filter
+	}
+
 	// try to match the condition on all combinedstatuses associated with the active binding + filtered objects
 	for objIdentifier := range filteredObjIdentifiers {
 		// build label selectors to match the combined status
@@ -227,7 +252,7 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 		nameReq, _ := labels.NewRequirement(CombinedStatusLabelName, selection.Equals,
 			[]string{objIdentifier.ObjectName.Name})
 		bindingPolicyReq, _ := labels.NewRequirement(CombinedStatusLabelBindingPolicy, selection.Equals,
-			[]string{sbpName})
+			[]string{sbpName + ".stage." + sbpData.stages[sbpData.activeIndex].Name})
 
 		selector := labels.NewSelector().
 			Add(*groupReq).
@@ -255,12 +280,16 @@ func (r *resolver) attemptConditionLocked(ctx context.Context, sbpName string) {
 			return
 		}
 
+		klog.FromContext(ctx).Info("attempting condition", "sbp", sbpName, "stage", sbpData.activeIndex)
+
 		if testExpression(ctx, r.celEvaluator, *sbpData.stages[sbpData.activeIndex].Condition, map[string]interface{}{
 			"combinedStatus": serializedCombinedStatus, // assuming one match, TODO: trim down to relevant match
 		}) == false {
 			return // condition not satisfied
 		}
 	}
+
+	klog.FromContext(ctx).Info("condition satisfied", "sbp", sbpName, "stage", sbpData.activeIndex)
 
 	// condition satisfied, move to next stage
 	r.stageUpLocked(ctx, sbpName)
@@ -292,52 +321,31 @@ func (r *resolver) stageUpLocked(ctx context.Context, sbpName string) {
 
 func (r *resolver) ensureActiveStageLocked(ctx context.Context, sbpName string,
 	sbpData *stagedBindingPolicyData) error {
-	// ensure a bp for the active stage
-	bpEcho, err := r.ksControlClient.BindingPolicies().Get(ctx, sbpName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			bpEcho, err := r.ksControlClient.BindingPolicies().Create(ctx, &v1alpha12.BindingPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: sbpName,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: v1alpha1.GroupVersion.String(),
-							Kind:       "StagedBindingPolicy",
-							Name:       sbpName,
-							UID:        sbpData.uid,
-						}}},
-				Spec: v1alpha12.BindingPolicySpec{
-					Downsync:         sbpData.downsync,
-					ClusterSelectors: sbpData.stages[sbpData.activeIndex].ClusterSelectors,
-				},
-			}, metav1.CreateOptions{})
-
-			if err != nil {
-				return err
-			}
-
-			sbpData.activeBindingPolicyUID = bpEcho.UID
-			return nil
+	// delete bp of previous stage if exists
+	if sbpData.activeIndex > 0 {
+		if err := r.ksControlClient.BindingPolicies().Delete(ctx, sbpName+".stage."+sbpData.stages[sbpData.activeIndex-1].Name,
+			metav1.DeleteOptions{}); err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("error deleting previous binding policy: %w", err)
 		}
 	}
 
-	bpEcho, err = r.ksControlClient.BindingPolicies().Update(ctx, &v1alpha12.BindingPolicy{
+	// ensure a bp for the active stage
+	bpEcho, err := r.ksControlClient.BindingPolicies().Create(ctx, &v1alpha12.BindingPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: sbpName,
+			Name: sbpName + ".stage." + sbpData.stages[sbpData.activeIndex].Name,
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: v1alpha1.GroupVersion.String(),
 					Kind:       "StagedBindingPolicy",
 					Name:       sbpName,
 					UID:        sbpData.uid,
-				}},
-			ResourceVersion: bpEcho.ResourceVersion,
-		},
+				}}},
 		Spec: v1alpha12.BindingPolicySpec{
 			Downsync:         sbpData.downsync,
 			ClusterSelectors: sbpData.stages[sbpData.activeIndex].ClusterSelectors,
 		},
-	}, metav1.UpdateOptions{})
+	}, metav1.CreateOptions{})
+
 	if err != nil {
 		return err
 	}
